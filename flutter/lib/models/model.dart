@@ -39,6 +39,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:vector_math/vector_math.dart' show Vector2;
 
 import '../common.dart';
+import '../mobile/background_reconnect.dart';
 import '../utils/image.dart' as img;
 import '../common/widgets/dialog.dart';
 import 'input_model.dart';
@@ -124,6 +125,7 @@ class FfiModel with ChangeNotifier {
   DateTime? _offlineReconnectStartTime;
   bool _androidDocumentPickerActive = false;
   bool _androidDocumentPickerInterruptedConnection = false;
+  final _androidBackgroundReconnect = AndroidBackgroundReconnect();
   bool _viewOnly = false;
   bool _showMyCursor = false;
   WeakReference<FFI> parent;
@@ -258,6 +260,7 @@ class FfiModel with ChangeNotifier {
     _timer = null;
     _androidDocumentPickerActive = false;
     _androidDocumentPickerInterruptedConnection = false;
+    _androidBackgroundReconnect.clear();
     resetRestartReconnectState();
     clearPermissions();
     waitForImageTimer?.cancel();
@@ -904,6 +907,16 @@ class FfiModel with ChangeNotifier {
       return;
     }
 
+    if (isAndroid &&
+        (title == 'Connection Error' ||
+            (type == 'restarting-show' && title == 'Connecting...')) &&
+        _androidBackgroundReconnect.deferConnectionError()) {
+      _timer?.cancel();
+      _timer = null;
+      resetRestartReconnectState();
+      return;
+    }
+
     // Disable relative mouse mode on any error-type message to ensure cursor is released.
     // This includes connection errors, session-ending messages, elevation errors, etc.
     // Safety: releasing pointer lock on errors prevents the user from being stuck.
@@ -984,6 +997,15 @@ class FfiModel with ChangeNotifier {
     if (!isAndroid) return;
     _androidDocumentPickerActive = true;
     _androidDocumentPickerInterruptedConnection = false;
+  }
+
+  void updateAndroidSessionLifecycle(AppLifecycleState state) {
+    if (!isAndroid) return;
+    if (_androidBackgroundReconnect.updateLifecycle(state) &&
+        parent.target != null &&
+        !parent.target!.closed) {
+      reconnect(parent.target!.dialogManager, sessionId, false);
+    }
   }
 
   void endAndroidDocumentPicker() {
